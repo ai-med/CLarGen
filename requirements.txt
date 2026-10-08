@@ -1,0 +1,11 @@
+torch>=2.1
+numpy
+pandas
+scikit-learn
+pyyaml
+tqdm
+transformers==4.56.2
+vllm==0.15.0
+nltk
+rouge-score
+google-genai

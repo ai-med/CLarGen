@@ -1,0 +1,95 @@
+# CLarGen configuration.
+# The defaults reproduce the CLarGen results reported in Table 1 of the paper
+# (generated_reports/clargen_outputs.json). See "Reproducing the paper" in README.md.
+# Any entry can be overridden from the command line: --set section.key=value
+
+data:
+  database: data/rag_database_train.pt   # retrieval index: HLIP embeddings + reports + labels of CT-RATE train
+  queries: data/rag_database_valid.pt    # query volumes: CT-RATE validation set
+  skip_suffixes: ["_2"]                  # drop the second reconstruction of each scan -> 1,607 queries
+  metadata_csv: null                     # CT-RATE valid_metadata.csv, only needed if prompt.use_metadata
+
+detector:                                # Stage 1
+  type: linear                           # linear (paper results) | lqt (Latent Query Transformer)
+  checkpoint: data/hlip_classifier_with_focal.pt
+  thresholds: data/thresholds_auc.npy    # per-class decision thresholds; null -> 0.5
+  latent_dim: 512
+  num_classes: 18
+  dropout: 0.3
+  lqt:
+    dim: 256
+    heads: 8
+    layers: 2
+    dropout: 0.1
+
+retrieval:                               # Stage 2
+  strategy: label_match                  # label_match (paper results) | pathology_guided (Eq. 2-3) | vol2text | vol2vol
+  k: 1                                   # number of exemplar reports given to the LLM
+  alpha: 0.5                             # pathology_guided: weight of the visual similarity in s_i
+  exclude_same_patient: true
+
+prompt:                                  # Stage 3 inputs
+  use_labels: true
+  use_exemplars: true
+  use_metadata: false                    # add patient age/sex (needs data.metadata_csv)
+
+generation:                              # Stage 3 (vLLM)
+  model: google/medgemma-27b-it
+  dtype: bfloat16
+  quantization: null                     # e.g. bitsandbytes to fit MedGemma-27B on a 24 GB GPU
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.90
+  max_model_len: 5676
+  enforce_eager: false
+  temperature: 0.0                       # greedy decoding
+  top_p: 1.0
+  max_tokens: 1024
+  seed: 0
+  output: generated_reports/clargen_outputs.json
+
+training:                                # train_detector.py
+  database: data/rag_database_train.pt
+  eval_database: data/rag_database_valid.pt
+  holdout_fraction: 0.1                  # patients held out from train for threshold tuning
+  epochs: 20
+  batch_size: 64
+  lr: 6.0e-5
+  weight_decay: 0.008
+  warmup_fraction: 0.05
+  gamma: 2.0                             # focal loss
+  seed: 0
+  output_dir: checkpoints
+
+evaluation:                              # evaluate.py
+  references: data/valid_reports.csv     # CT-RATE validation reports (references for all metrics)
+  radbert_checkpoint: data/RadBertClassifier.pth
+  radbert_batch_size: 32
+  subset: all                            # all: every volume of each file (Table 1a-b) | common: shared volumes only
+  nbs_encoder: microsoft/BiomedVLP-CXR-BERT-specialized
+  output_dir: results
+  reports:                               # name: file
+    Ground truth: generated_reports/ground_truth.json
+    CT-CHAT: generated_reports/ct_chat_outputs.json
+    HULU-Med: generated_reports/HULU_outputs.json
+    Reg2Rg: generated_reports/Reg2Rg_outputs.json
+    SAMF: generated_reports/SAMF_outputs.json
+    CLarGen: generated_reports/clargen_outputs.json
+    CLarGen (k=6): generated_reports/ablations/clargen_k6_outputs.json
+
+judge:                                   # llm_judge.py
+  backend: vllm                          # vllm | gemini (needs GEMINI_API_KEY)
+  model: Qwen/Qwen2.5-72B-Instruct
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.90
+  max_model_len: 4096
+  max_tokens: 256
+  max_chars: 2200                        # per report, before truncation
+  limit: null                            # judge only the first N common volumes
+  ground_truth: generated_reports/ground_truth.json
+  output_dir: results/llm_judge
+  reports:
+    CT-CHAT: generated_reports/ct_chat_outputs.json
+    HULU-Med: generated_reports/HULU_outputs.json
+    Reg2Rg: generated_reports/Reg2Rg_outputs.json
+    SAMF: generated_reports/SAMF_outputs.json
+    CLarGen: generated_reports/clargen_outputs.json

@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Outputs
+results/
+checkpoints/
+*.out
+*.err
+*.log
+
+# Large files, downloaded separately (see README)
+data/rag_database_train.pt
+data/RadBertClassifier.pth
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
